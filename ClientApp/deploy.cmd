@@ -65,7 +65,9 @@ SET MSBUILD_PATH=%ProgramFiles(x86)%\MSBuild\14.0\Bin\MSBuild.exe
 :: ----------
 
 echo Handling ASP.NET Core Web Application deployment.
-
+echo npm install @angular/cli
+call :ExecuteCmd npm install -g @angular/cli
+IF !ERRORLEVEL! NEQ 0 goto error
 :: 1. Restore nuget packages
 call :ExecuteCmd dotnet restore "%DEPLOYMENT_SOURCE%\webappangular.csproj"
 IF !ERRORLEVEL! NEQ 0 goto error
