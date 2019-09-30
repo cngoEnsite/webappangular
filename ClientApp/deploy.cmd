@@ -68,6 +68,11 @@ echo Handling ASP.NET Core Web Application deployment.
 echo npm install @angular/cli
 call :ExecuteCmd npm install -g @angular/cli
 IF !ERRORLEVEL! NEQ 0 goto error
+
+echo npm run build
+call :ExecuteCmd npm run build
+IF !ERRORLEVEL! NEQ 0 goto error
+
 :: 1. Restore nuget packages
 call :ExecuteCmd dotnet restore "%DEPLOYMENT_SOURCE%\webappangular.csproj"
 IF !ERRORLEVEL! NEQ 0 goto error
