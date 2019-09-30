@@ -2,7 +2,7 @@
 
 :: ----------------------
 :: KUDU Deployment Script
-:: Version: 1.0.17
+:: Version: 1.0.15
 :: ----------------------
 
 :: Prerequisites
@@ -47,44 +47,74 @@ IF NOT DEFINED KUDU_SYNC_CMD (
   :: Locally just running "kuduSync" would also work
   SET KUDU_SYNC_CMD=%appdata%\npm\kuduSync.cmd
 )
-IF NOT DEFINED DEPLOYMENT_TEMP (
-  SET DEPLOYMENT_TEMP=%temp%\___deployTemp%random%
-  SET CLEAN_LOCAL_DEPLOYMENT_TEMP=true
+goto Deployment
+
+:: Utility Functions
+:: -----------------
+
+:SelectNodeVersion
+
+IF DEFINED KUDU_SELECT_NODE_VERSION_CMD (
+  :: The following are done only on Windows Azure Websites environment
+  call %KUDU_SELECT_NODE_VERSION_CMD% "%DEPLOYMENT_SOURCE%" "%DEPLOYMENT_TARGET%" "%DEPLOYMENT_TEMP%"
+  IF !ERRORLEVEL! NEQ 0 goto error
+
+  IF EXIST "%DEPLOYMENT_TEMP%\__nodeVersion.tmp" (
+    SET /p NODE_EXE=<"%DEPLOYMENT_TEMP%\__nodeVersion.tmp"
+    IF !ERRORLEVEL! NEQ 0 goto error
+  )
+  
+  IF EXIST "%DEPLOYMENT_TEMP%\__npmVersion.tmp" (
+    SET /p NPM_JS_PATH=<"%DEPLOYMENT_TEMP%\__npmVersion.tmp"
+    IF !ERRORLEVEL! NEQ 0 goto error
+  )
+
+  IF NOT DEFINED NODE_EXE (
+    SET NODE_EXE=node
+  )
+
+  SET NPM_CMD="!NODE_EXE!" "!NPM_JS_PATH!"
+) ELSE (
+  SET NPM_CMD=npm
+  SET NODE_EXE=node
 )
 
-IF DEFINED CLEAN_LOCAL_DEPLOYMENT_TEMP (
-  IF EXIST "%DEPLOYMENT_TEMP%" rd /s /q "%DEPLOYMENT_TEMP%"
-  mkdir "%DEPLOYMENT_TEMP%"
-)
+goto :EOF
 
-IF DEFINED MSBUILD_PATH goto MsbuildPathDefined
-SET MSBUILD_PATH=%ProgramFiles(x86)%\MSBuild\14.0\Bin\MSBuild.exe
-:MsbuildPathDefined
 ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 :: Deployment
 :: ----------
 
-echo Handling ASP.NET Core Web Application deployment.
-echo npm install @angular/cli
-call :ExecuteCmd npm install -g @angular/cli
-IF !ERRORLEVEL! NEQ 0 goto error
+:Deployment
+echo Handling node.js deployment.
 
-echo npm run build
-call :ExecuteCmd npm run build
-IF !ERRORLEVEL! NEQ 0 goto error
+:: 1. Select node version
+call :SelectNodeVersion
 
-:: 1. Restore nuget packages
-call :ExecuteCmd dotnet restore "%DEPLOYMENT_SOURCE%\webappangular.csproj"
-IF !ERRORLEVEL! NEQ 0 goto error
+:: 2. Install npm packages
+IF EXIST "%DEPLOYMENT_SOURCE%\package.json" (
+  pushd "%DEPLOYMENT_SOURCE%"
+  call :ExecuteCmd !NPM_CMD! install --production
+  IF !ERRORLEVEL! NEQ 0 goto error
+  popd
+)
 
-:: 2. Build and publish
-call :ExecuteCmd dotnet publish "%DEPLOYMENT_SOURCE%\webappangular.csproj" --output "%DEPLOYMENT_TEMP%" --configuration Release
+:: 3. Angular Prod Build
+IF EXIST "%DEPLOYMENT_SOURCE%/.angular-cli.json" (
+echo Building App in %DEPLOYMENT_SOURCE%…
+pushd "%DEPLOYMENT_SOURCE%"
+call :ExecuteCmd !NPM_CMD! run build
+:: If the above command fails comment above and uncomment below one
+:: call ./node_modules/.bin/ng build –prod
 IF !ERRORLEVEL! NEQ 0 goto error
+popd
+)
 
-:: 3. KuduSync
-call :ExecuteCmd "%KUDU_SYNC_CMD%" -v 50 -f "%DEPLOYMENT_TEMP%" -t "%DEPLOYMENT_TARGET%" -n "%NEXT_MANIFEST_PATH%" -p "%PREVIOUS_MANIFEST_PATH%" -i ".git;.hg;.deployment;deploy.cmd"
-IF !ERRORLEVEL! NEQ 0 goto error
-
+:: 4. KuduSync
+IF /I "%IN_PLACE_DEPLOYMENT%" NEQ "1" (
+  call :ExecuteCmd "%KUDU_SYNC_CMD%" -v 50 -f "%DEPLOYMENT_SOURCE%/dist" -t "%DEPLOYMENT_TARGET%" -n "%NEXT_MANIFEST_PATH%" -p "%PREVIOUS_MANIFEST_PATH%" -i ".git;.hg;.deployment;deploy.cmd"
+  IF !ERRORLEVEL! NEQ 0 goto error
+)
 ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 goto end
 
